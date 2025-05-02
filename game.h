@@ -3,43 +3,48 @@
 #include <atomic>
 #include <mutex>
 #include <random>
+#include <deque>
 
+// todo: change all to be normal int
 class RazzleGame {
 private:
     // learnable game paramters (P means parameter)
-    std::atomic<int> betP;
-    std::atomic<int> numOfDiceP;
-    std::atomic<int> minNoWinP;
-    std::atomic<int> maxNoWinP;
-    std::vector<std::atomic<int>> yardsPerStepP; // const size 5
-    std::vector<std::atomic<int>> payoutPerStepP; // const size 5
-    std::atomic<int> maxTriesP;
+    int betP;
+    int numOfDiceP;
+    int minNoWinP;
+    int maxNoWinP;
+
+    int yardsPerStep1P;
+    int yardsPerStep2P;
+    int yardsPerStep3P;
+    int yardsPerStep4P;
+    int yardsPerStep5P; 
+
+    int payoutPerStep1P;
+    int payoutPerStep2P;
+    int payoutPerStep3P;
+    int payoutPerStep4P;
+    int payoutPerStep5P;
+
+    int maxTriesP;
 
     // game constants
     const int minSum;
     const int maxSum;
 
     // game mechanic storage
-    int rollSum;
     std::mt19937 engine;
 
-    int mapRollToYard(int S) const {
-        // 1) check failure band
-        int failMin = minNoWinP.load();
-        int failMax = maxNoWinP.load();
-        if (S >= failMin && S <= failMax) {
-            return 0;
-        }
+    std::deque<std::unique_ptr<std::atomic<int>>> outcomeStorageProfit;
 
-        // 2) piecewise thresholds for steps 1..5
-        for (size_t i = 0; i < yardsPerStepP.size(); ++i) {
-            if (S <= yardsPerStepP[i].load()) {
-                return static_cast<int>(i + 1);
-            }
-        }
+    bool mapRollToYard(int S, int current) const;
+    int mapStepToPayout(int current) const;
+public:
+    // stupid ass constructor
+    RazzleGame(int bet, int numOfDice, int minNoWin, int maxNoWin, 
+                int yardsPerStep1, int yardsPerStep2, int yardsPerStep3, int yardsPerStep4, int yardsPerStep5,
+                int payoutPerStep1, int payoutPerStep2, int payoutPerStep3, int payoutPerStep4, int payoutPerStep5,
+                int maxTries, std::random_device rnd);
 
-        // 3) anything above the last threshold still counts as step 5
-        return static_cast<int>(yardsPerStepP.size());
-    }
-
+    void runGame();
 };
