@@ -2,20 +2,20 @@
 
 bool RazzleGame::mapRollToYard(int S, int current) const {
      // check failure band
-    int failMin = minNoWinP;
-    int failMax = maxNoWinP;
+    int failMin = params.at("minNoWinP");
+    int failMax = params.at("maxNoWinP");
     if (S >= failMin && S <= failMax) {
         return false;
     }
     // calculate the yard value based on the roll
     int yardValue;
-    if (S <= yardsPerStep1P) {
+    if (S <= params.at("yardsPerStep1P")) {
         yardValue = 1;
-    } else if (S <= yardsPerStep2P) {
+    } else if (S <= params.at("yardsPerStep2P")) {
         yardValue = 2;
-    } else if (S <= yardsPerStep3P) {
+    } else if (S <= params.at("yardsPerStep3P")) {
         yardValue = 3;
-    } else if (S <= yardsPerStep4P) {
+    } else if (S <= params.at("yardsPerStep4P")) {
         yardValue = 4;
     } else {
         yardValue = 5;
@@ -25,23 +25,17 @@ bool RazzleGame::mapRollToYard(int S, int current) const {
 }
 
 int RazzleGame::mapStepToPayout(int current) const {
-    if (current == 1) {
-        return payoutPerStep1P;
-    } else if (current == 2) {
-        return payoutPerStep2P;
-    } else if (current == 3) {
-        return payoutPerStep3P;
-    } else if (current == 4) {
-        return payoutPerStep4P;
-    } else if (current == 5) {
-        return payoutPerStep5P;
-    }
+    if (current == 1) return params.at("payoutPerStep1P");
+    else if (current == 2) return params.at("payoutPerStep2P");
+    else if (current == 3) return params.at("payoutPerStep3P");
+    else if (current == 4) return params.at("payoutPerStep4P");
+    else if (current == 5) return params.at("payoutPerStep5P");
     return 0;
 }
 
 // fill sumProb
 void RazzleGame::computeSumDistribution() {
-    int D = numOfDiceP;
+    int D = params.at("numOfDiceP");
     int F = 6;
     int sMin = D, sMax = D * F;
 
@@ -81,22 +75,22 @@ void RazzleGame::buildTransitionMatrix() {
             
             // get actual yard value
             int nextYard;
-            if (roll >= minNoWinP && roll <= maxNoWinP) {
+            if (roll >= params.at("minNoWinP") && roll <= params.at("maxNoWinP")) {
                 nextYard = 0;
-            } else if (roll <= yardsPerStep1P) {
+            } else if (roll <= params.at("yardsPerStep1P")) {
                 nextYard = 1;
-            } else if (roll <= yardsPerStep2P) {
+            } else if (roll <= params.at("yardsPerStep2P")) {
                 nextYard = 2;
-            } else if (roll <= yardsPerStep3P) {
+            } else if (roll <= params.at("yardsPerStep3P")) {
                 nextYard = 3;
-            } else if (roll <= yardsPerStep4P) {
+            } else if (roll <= params.at("yardsPerStep4P")) {
                 nextYard = 4;
             } else {
                 nextYard = 5;
             }
             
             // you can only advance, not drop below 0, if it's not > s then it's effectively staying at s (or bust if maxTries has been exceeded)
-            if (nextYard <= s) nextYard = (roll >= minNoWinP && roll <= maxNoWinP) ? 0 : s;
+            if (nextYard <= s) nextYard = (roll >= params.at("minNoWinP") && roll <= params.at("maxNoWinP")) ? 0 : s;
             T[s][nextYard] += p;
         }
     }
@@ -109,7 +103,7 @@ void RazzleGame::solveOptimalStopping() {
         V[s] = static_cast<double>(mapStepToPayout(s));
     }
 
-    const double B = static_cast<double>(betP);
+    const double B = static_cast<double>(params.at("betP"));
     // value iter
     for(int _ = 0; _ < 100; _++) {
         std::array<double,6> Vnew = V;
@@ -132,7 +126,7 @@ void RazzleGame::solveOptimalStopping() {
         if (s == 5) {
             policy[s] = false; // you can’t continue from the last yard
         } else {
-            double contEV = -static_cast<double>(betP);
+            double contEV = -static_cast<double>(params.at("betP"));
             for(int sp = 0; sp <= 5; ++sp) {
                 contEV += T[s][sp] * V[sp];
             }
@@ -141,32 +135,13 @@ void RazzleGame::solveOptimalStopping() {
     }
 }
 
-RazzleGame::RazzleGame(int bet, int numOfDice, int minNoWin, int maxNoWin, 
-                        int yardsPerStep1, int yardsPerStep2, int yardsPerStep3, int yardsPerStep4, int yardsPerStep5,
-                        int payoutPerStep1, int payoutPerStep2, int payoutPerStep3, int payoutPerStep4, int payoutPerStep5,
-                        int maxTries, std::random_device& rnd) :
-    betP(bet),
-    numOfDiceP(numOfDice),
-    minNoWinP(minNoWin),
-    maxNoWinP(maxNoWin),
-    yardsPerStep1P(yardsPerStep1),
-    yardsPerStep2P(yardsPerStep2),
-    yardsPerStep3P(yardsPerStep3),
-    yardsPerStep4P(yardsPerStep4),
-    yardsPerStep5P(yardsPerStep5),
-    payoutPerStep1P(payoutPerStep1),
-    payoutPerStep2P(payoutPerStep2),
-    payoutPerStep3P(payoutPerStep3),
-    payoutPerStep4P(payoutPerStep4),
-    payoutPerStep5P(payoutPerStep5),
-    maxTriesP(maxTries),
-    minSum(numOfDice),
-    maxSum(numOfDice * 6),
+RazzleGame::RazzleGame(const std::map<std::string,int>& paramsMap, std::random_device& rnd) :
+    params(paramsMap),
+    minSum(params.at("numOfDiceP")),
+    maxSum(params.at("numOfDiceP") * 6),
     engine(rnd()),
     outcomeStorageProfit() {
-        computeSumDistribution();
-        buildTransitionMatrix();
-        solveOptimalStopping();
+        recomputePolicy();
     }
 
 bool RazzleGame::shouldContinue(int step) const {
@@ -182,16 +157,16 @@ void RazzleGame::recomputePolicy() {
 
 void RazzleGame::runGame() {
     std::uniform_int_distribution<int> dist(1, 6);
-    int numberOfAttempts = maxTriesP;
+    int numberOfAttempts = params.at("maxTriesP");
     int step = 0;
     int paidIn = 0;
     int paidOut = 0;
     while (numberOfAttempts > 0) {
-        paidIn += betP;
+        paidIn += params.at("betP");
         numberOfAttempts--;
 
         int sum = 0;
-        for (int i = 0; i < numOfDiceP; i++) sum += dist(engine);
+        for (int i = 0; i < params.at("numOfDiceP"); i++) sum += dist(engine);
 
         bool advance = mapRollToYard(sum, step);
         if (advance) {
@@ -201,10 +176,10 @@ void RazzleGame::runGame() {
 
         // (recompute yardValue exactly as in buildTransitionMatrix)
         int newStep = step;
-        if (sum <= yardsPerStep1P) newStep = std::max(step, 1);
-        else if (sum <= yardsPerStep2P) newStep = std::max(step, 2);
-        else if (sum <= yardsPerStep3P) newStep = std::max(step, 3);
-        else if (sum <= yardsPerStep4P) newStep = std::max(step, 4);
+        if (sum <= params.at("yardsPerStep1P")) newStep = std::max(step, 1);
+        else if (sum <= params.at("yardsPerStep2P")) newStep = std::max(step, 2);
+        else if (sum <= params.at("yardsPerStep3P")) newStep = std::max(step, 3);
+        else if (sum <= params.at("yardsPerStep4P")) newStep = std::max(step, 4);
         else newStep = 5;
 
         step = newStep;
@@ -218,13 +193,9 @@ void RazzleGame::runGame() {
     }
 
     // store profit = paidOut - paidIn, or profit = 0 if numberOfAttempts == maxTriesP
-    if (numberOfAttempts < maxTriesP) {
-        outcomeStorageProfit.push_back(
-            std::make_unique<std::atomic<int>>(paidOut - paidIn)
-        );
+    if (numberOfAttempts < params.at("maxTriesP")) {
+        outcomeStorageProfit.push_back(paidOut - paidIn);
     } else {
-        outcomeStorageProfit.push_back(
-            std::make_unique<std::atomic<int>>(0)
-        ); 
+        outcomeStorageProfit.push_back(0); 
     }
 }
