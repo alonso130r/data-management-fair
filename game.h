@@ -4,8 +4,9 @@
 #include <mutex>
 #include <random>
 #include <deque>
+#include <map>
+#include <numeric>
 
-// todo: change all to be normal int
 class RazzleGame {
 private:
     // learnable game paramters (P means parameter)
@@ -34,17 +35,27 @@ private:
 
     // game mechanic storage
     std::mt19937 engine;
+    std::map<int,double> sumProb;               // probability distribution
+    std::array<std::array<double,6>,6> T;       // transition probabilities
+    std::array<bool,6> policy;                  // true=CONTINUE, false=STOP
+    std::array<double,6> V;                     // value function
 
     std::deque<std::unique_ptr<std::atomic<int>>> outcomeStorageProfit;
 
     bool mapRollToYard(int S, int current) const;
     int mapStepToPayout(int current) const;
+    bool shouldContinue(int step) const;
+
+    void computeSumDistribution();
+    void buildTransitionMatrix();
+    void solveOptimalStopping();
+    void recomputePolicy();
 public:
     // stupid ass constructor
     RazzleGame(int bet, int numOfDice, int minNoWin, int maxNoWin, 
                 int yardsPerStep1, int yardsPerStep2, int yardsPerStep3, int yardsPerStep4, int yardsPerStep5,
                 int payoutPerStep1, int payoutPerStep2, int payoutPerStep3, int payoutPerStep4, int payoutPerStep5,
-                int maxTries, std::random_device rnd);
+                int maxTries, std::random_device& rnd);
 
     void runGame();
 };
