@@ -1,6 +1,5 @@
 #include <cmath>
 #include <vector>
-#include <atomic>
 #include <mutex>
 #include <random>
 #include <deque>
@@ -11,7 +10,7 @@
 class RazzleGame {
 private:
     // learnable game paramters 
-    std::map<std::string,int> params;
+    std::map<std::string, int> params;
 
     // game constants
     const int minSum;
@@ -20,7 +19,7 @@ private:
     // game mechanic storage
     std::mt19937 engine;
     std::map<int, double> sumProb;               // probability distribution
-    std::array<std::array<double, 6>, 6> T;       // transition probabilities
+    std::array<std::array<double, 6>, 6> T;      // transition probabilities
     std::array<bool, 6> policy;                  // true=CONTINUE, false=STOP
     std::array<double, 6> V;                     // value function
 
@@ -35,11 +34,12 @@ private:
     void solveOptimalStopping();
     void recomputePolicy();
 public:
-    // stupid ass constructor
-    RazzleGame(const std::map<std::string,int>& params, std::random_device& rnd);
+    // not so stupid ass constructor
+    RazzleGame(const std::map<std::string, int>& paramsMap, std::random_device& rnd);
 
-    void runGame();
+    // run a single game and return profit (paidOut - paidIn)
+    int runGame();
 
-    std::map<std::string,int> getParameters() const;
-    void setParameters(const std::map<std::string,int>& updates);
+    // access parameters
+    const std::map<std::string, int>& getParameters() const;
 };

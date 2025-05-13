@@ -1,0 +1,16 @@
+Final avgProfit=-0.24636
+Final winRate=0.16066
+betP=3
+maxTriesP=11
+noWinRangeP=3
+numOfDiceP=3
+payoutPerStep1P=1
+payoutPerStep2P=2
+payoutPerStep3P=3
+payoutPerStep4P=4
+payoutPerStep5P=7
+yardsPerStep1P=5
+yardsPerStep2P=9
+yardsPerStep3P=13
+yardsPerStep4P=17
+noScoreWindow=[7,13]

@@ -1,9 +1,18 @@
-#include <game.h>
+#include "game.h"
+#include <algorithm>  // for std::max/std::min
 
 bool RazzleGame::mapRollToYard(int S, int current) const {
-     // check failure band
-    int failMin = params.at("minNoWinP");
-    int failMax = params.at("maxNoWinP");
+    // compute no-score window around midpoint
+    int D = params.at("numOfDiceP");
+    int minSum = D;
+    int maxSum = D * 6;
+    int mid = (minSum + maxSum) / 2;
+    int r = 0;
+    auto itR = params.find("noWinRangeP");
+    if (itR != params.end()) r = itR->second;
+    int failMin = std::max(minSum, mid - r);
+    int failMax = std::min(maxSum, mid + r);
+    // check failure band
     if (S >= failMin && S <= failMax) {
         return false;
     }
@@ -73,9 +82,20 @@ void RazzleGame::buildTransitionMatrix() {
             int roll = pPair.first;
             double p = pPair.second;
             
-            // get actual yard value
+            // compute dynamic failure band around midpoint
+            int D = params.at("numOfDiceP");
+            int minSum = D;
+            int maxSum = D * 6;
+            int mid = (minSum + maxSum) / 2;
+            int r = 0;
+            auto it = params.find("noWinRangeP");
+            if (it != params.end()) r = it->second;
+            int failMin = std::max(minSum, mid - r);
+            int failMax = std::min(maxSum, mid + r);
+            
+            // map roll to next yard
             int nextYard;
-            if (roll >= params.at("minNoWinP") && roll <= params.at("maxNoWinP")) {
+            if (roll >= failMin && roll <= failMax) {
                 nextYard = 0;
             } else if (roll <= params.at("yardsPerStep1P")) {
                 nextYard = 1;
@@ -88,9 +108,9 @@ void RazzleGame::buildTransitionMatrix() {
             } else {
                 nextYard = 5;
             }
+            // ensure no backward move except bust
+            if (nextYard != 0 && nextYard <= s) nextYard = s;
             
-            // you can only advance, not drop below 0, if it's not > s then it's effectively staying at s (or bust if maxTries has been exceeded)
-            if (nextYard <= s) nextYard = (roll >= params.at("minNoWinP") && roll <= params.at("maxNoWinP")) ? 0 : s;
             T[s][nextYard] += p;
         }
     }
@@ -155,7 +175,7 @@ void RazzleGame::recomputePolicy() {
     solveOptimalStopping();
 }
 
-void RazzleGame::runGame() {
+int RazzleGame::runGame() {
     std::uniform_int_distribution<int> dist(1, 6);
     int numberOfAttempts = params.at("maxTriesP");
     int step = 0;
@@ -192,10 +212,13 @@ void RazzleGame::runGame() {
         }
     }
 
-    // store profit = paidOut - paidIn, or profit = 0 if numberOfAttempts == maxTriesP
-    if (numberOfAttempts < params.at("maxTriesP")) {
-        outcomeStorageProfit.push_back(paidOut - paidIn);
-    } else {
-        outcomeStorageProfit.push_back(0); 
-    }
+    // compute profit as (paidOut - paidIn) for all games
+    int profit = paidOut - paidIn;
+    outcomeStorageProfit.push_back(profit);
+    return profit;
+}
+
+// access parameters
+const std::map<std::string,int>& RazzleGame::getParameters() const {
+    return params;
 }
