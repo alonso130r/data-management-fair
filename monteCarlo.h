@@ -23,4 +23,6 @@ private:
     std::random_device rd;
     // bounds for each parameter [min, max]
     std::map<std::string, std::pair<int,int>> bounds;
+    // compute analytical expected value (theoretical EV) for given params
+    double computeTheoreticalEV(const std::map<std::string,int>& p) const;
 };

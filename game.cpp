@@ -6,12 +6,13 @@ bool RazzleGame::mapRollToYard(int S, int current) const {
     int D = params.at("numOfDiceP");
     int minSum = D;
     int maxSum = D * 6;
-    int mid = (minSum + maxSum) / 2;
+    // compute true midpoint for centering window
+    double mid = (minSum + maxSum) / 2.0;
     int r = 0;
     auto itR = params.find("noWinRangeP");
     if (itR != params.end()) r = itR->second;
-    int failMin = std::max(minSum, mid - r);
-    int failMax = std::min(maxSum, mid + r);
+    int failMin = std::max(minSum, static_cast<int>(std::ceil(mid - r)));
+    int failMax = std::min(maxSum, static_cast<int>(std::floor(mid + r)));
     // check failure band
     if (S >= failMin && S <= failMax) {
         return false;
@@ -82,16 +83,16 @@ void RazzleGame::buildTransitionMatrix() {
             int roll = pPair.first;
             double p = pPair.second;
             
-            // compute dynamic failure band around midpoint
+            // compute dynamic failure band around centered midpoint
             int D = params.at("numOfDiceP");
             int minSum = D;
             int maxSum = D * 6;
-            int mid = (minSum + maxSum) / 2;
+            double mid = (minSum + maxSum) / 2.0;
             int r = 0;
             auto it = params.find("noWinRangeP");
             if (it != params.end()) r = it->second;
-            int failMin = std::max(minSum, mid - r);
-            int failMax = std::min(maxSum, mid + r);
+            int failMin = std::max(minSum, static_cast<int>(std::ceil(mid - r)));
+            int failMax = std::min(maxSum, static_cast<int>(std::floor(mid + r)));
             
             // map roll to next yard
             int nextYard;
@@ -123,20 +124,18 @@ void RazzleGame::solveOptimalStopping() {
         V[s] = static_cast<double>(mapStepToPayout(s));
     }
 
-    const double B = static_cast<double>(params.at("betP"));
-    // value iter
-    for(int _ = 0; _ < 100; _++) {
+    // value iteration without per-roll cost (roll cost paid upfront)
+    for(int iter = 0; iter < 100; iter++) {
         std::array<double,6> Vnew = V;
         for(int s = 0; s < 5; s++) {
             // compute continuation EV from s
-            double contEV = -B;
+            double contEV = 0.0;
             for(int sp = 0; sp <= 5; sp++) {
                 contEV += T[s][sp] * V[sp];
             }
             // best of stopping vs. continuing
             Vnew[s] = std::max(static_cast<double>(mapStepToPayout(s)), contEV);
         }
-        // V[5] remains mapStepToPayout(5)
         V = Vnew;
     }
 
@@ -144,9 +143,9 @@ void RazzleGame::solveOptimalStopping() {
     for(int s = 0; s <= 5; ++s) {
         double stopEV = static_cast<double>(mapStepToPayout(s));
         if (s == 5) {
-            policy[s] = false; // you can’t continue from the last yard
+            policy[s] = false; // no continuation from last yard
         } else {
-            double contEV = -static_cast<double>(params.at("betP"));
+            double contEV = 0.0;
             for(int sp = 0; sp <= 5; ++sp) {
                 contEV += T[s][sp] * V[sp];
             }
@@ -177,21 +176,20 @@ void RazzleGame::recomputePolicy() {
 
 int RazzleGame::runGame() {
     std::uniform_int_distribution<int> dist(1, 6);
-    int numberOfAttempts = params.at("maxTriesP");
+    int rollsLeft = params.at("maxRolls");         // fixed rolls
     int step = 0;
-    int paidIn = 0;
+    int paidIn = params.at("payIn");               // one-time pay-in
     int paidOut = 0;
-    while (numberOfAttempts > 0) {
-        paidIn += params.at("betP");
-        numberOfAttempts--;
-
+    while (rollsLeft > 0) {
+        rollsLeft--;
+         
         int sum = 0;
         for (int i = 0; i < params.at("numOfDiceP"); i++) sum += dist(engine);
 
         bool advance = mapRollToYard(sum, step);
         if (advance) {
             step++;
-            paidOut += mapStepToPayout(step);
+            paidOut = mapStepToPayout(step);
         }
 
         // (recompute yardValue exactly as in buildTransitionMatrix)
@@ -204,17 +202,20 @@ int RazzleGame::runGame() {
 
         step = newStep;
         paidOut = mapStepToPayout(step);
-
-        // decide whether to roll again
-        if (!shouldContinue(step)) {
-            // cash out here
+        // decide whether to roll again or if out of rolls
+        if (!shouldContinue(step) || rollsLeft == 0) {
             break;
         }
     }
 
-    // compute profit as (paidOut - paidIn) for all games
+    // if ran out of rolls without reaching last step, lose automatically
+    if (rollsLeft == 0 && step < 5) {
+        paidOut = 0;
+    }
+    // compute profit as (paidOut - paidIn)
     int profit = paidOut - paidIn;
-    outcomeStorageProfit.push_back(profit);
+    // disable storage for performance: avoid concurrent vector contention
+    // outcomeStorageProfit.push_back(profit);
     return profit;
 }
 

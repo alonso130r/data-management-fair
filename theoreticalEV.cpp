@@ -1,0 +1,80 @@
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <map>
+#include <vector>
+#include <cmath>
+#include <iomanip>
+#include <functional>
+#include <numeric>
+
+int main() {
+    // load parameters
+    std::ifstream ifs("final_params.txt");
+    if (!ifs) { std::cerr << "Error: cannot open final_params.txt" << std::endl; return 1; }
+    std::map<std::string,double> params;
+    std::string line;
+    while (std::getline(ifs, line)) {
+        if (line.rfind("Final",0)==0) continue;
+        auto pos = line.find('='); if (pos==std::string::npos) continue;
+        auto key = line.substr(0,pos), val = line.substr(pos+1);
+        if (key=="noScoreWindow") continue;
+        params[key] = std::stod(val);
+    }
+    int D = int(params["numOfDiceP"]);
+    int minSum = D, maxSum = D*6;
+    double r = params["noWinRangeP"];
+    double mid = (minSum+maxSum)/2.0;
+    int failMin = std::max(minSum, int(std::ceil(mid-r)));
+    int failMax = std::min(maxSum, int(std::floor(mid+r)));
+
+    int maxRolls = int(params["maxRolls"]);
+    double payIn = params["payIn"];
+
+    // build probability distribution for sum of D dice
+    std::vector<double> dist(maxSum+1);
+    for(int i=1;i<=6;i++) dist[i]=1.0;
+    for(int dice=2;dice<=D;dice++){
+        std::vector<double> next(maxSum+1);
+        for(int s=0;s<=(dice-1)*6;s++) if(dist[s]>0) for(int f=1;f<=6;f++) next[s+f]+=dist[s];
+        dist.swap(next);
+    }
+    double total = std::accumulate(dist.begin(),dist.end(),0.0);
+    std::vector<double> sumProb(maxSum+1);
+    for(int s=minSum;s<=maxSum;s++) sumProb[s]=dist[s]/total;
+
+    // helper to map roll->next step and payout
+    auto nextStep = [&](int sum,int cur){
+        if(sum>=failMin && sum<=failMax) return 0;
+        if(sum<=params["yardsPerStep1P"]) return 1;
+        if(sum<=params["yardsPerStep2P"]) return 2;
+        if(sum<=params["yardsPerStep3P"]) return 3;
+        if(sum<=params["yardsPerStep4P"]) return 4;
+        return 5;
+    };
+    auto payoutOf = [&](int step){
+        if(step<1||step>5) return 0.0;
+        return params["payoutPerStep" + std::to_string(step) + "P"];
+    };
+
+    // enumerate all routes
+    double EV_accum=0.0;
+    std::function<void(int,int,double)> dfs = [&](int rollsLeft,int curStep,double prob){
+        if(rollsLeft==0){
+            EV_accum += prob * payoutOf(curStep);
+            return;
+        }
+        for(int s=minSum;s<=maxSum;s++){
+            double p = sumProb[s]; if(p==0) continue;
+            int next = nextStep(s,curStep);
+            // ensure no backward except bust
+            if(next!=0 && next<curStep) next=curStep;
+            dfs(rollsLeft-1, next, prob*p);
+        }
+    };
+    dfs(maxRolls, 0, 1.0);
+
+    double EV = EV_accum - payIn;
+    std::cout<<"Theoretical EV (per game): "<<std::fixed<<std::setprecision(6)<<EV<<std::endl;
+    return 0;
+}
