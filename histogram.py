@@ -1,0 +1,154 @@
+
+import numpy as np
+import matplotlib.pyplot as plt
+from collections import defaultdict
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(message)s')
+logger = logging.getLogger("razzle")
+
+# Game parameters (from final_params1.txt)
+params = {
+    "maxRolls": 5,
+    "noWinRangeP": 2,
+    "numOfDiceP": 3,
+    "payIn": 3,
+    "payoutPerStep1P": 1,
+    "payoutPerStep2P": 2,
+    "payoutPerStep3P": 4,
+    "payoutPerStep4P": 6,
+    "payoutPerStep5P": 9,
+    "yardsPerStep1P": 3,
+    "yardsPerStep2P": 7,
+    "yardsPerStep3P": 14,
+    "yardsPerStep4P": 16,
+    "yardsPerStep5P": 18,
+}
+
+def get_sum_probabilities(num_dice=3, faces=6):
+    from itertools import product
+    sums = [sum(x) for x in product(range(1, faces+1), repeat=num_dice)]
+    values, counts = np.unique(sums, return_counts=True)
+    prob = np.zeros(num_dice*faces+1)
+    prob[values] = counts / counts.sum()
+    return prob
+
+sum_prob = get_sum_probabilities(params["numOfDiceP"])
+
+D = params["numOfDiceP"]
+minSum = D
+maxSum = D * 6
+mid = (minSum + maxSum) / 2.0
+r = params["noWinRangeP"]
+failMin = max(minSum, int(np.ceil(mid - r)))
+failMax = min(maxSum, int(np.floor(mid + r)))
+
+def next_step(sum_, cur):
+    if failMin <= sum_ <= failMax:
+        return 0
+    if sum_ <= params["yardsPerStep1P"]:
+        return 1
+    if sum_ <= params["yardsPerStep2P"]:
+        return 2
+    if sum_ <= params["yardsPerStep3P"]:
+        return 3
+    if sum_ <= params["yardsPerStep4P"]:
+        return 4
+    return 5
+
+def payout(step):
+    if step < 1 or step > 5:
+        return 0
+    return params[f"payoutPerStep{step}P"]
+
+from functools import lru_cache
+
+def dp(rolls_left, cur_step, path=None, prob_so_far=1.0):
+    # Modified policy: stop if at step 3 or higher, or at step 2 with 1 roll left
+    if path is None:
+        path = []
+    outcome = defaultdict(float)
+    if rolls_left == 0:
+        profit = payout(cur_step) - params["payIn"]
+        logger.debug(f"END: path={path} cur_step={cur_step} profit={profit} prob={prob_so_far}")
+        outcome[profit] = prob_so_far
+        return outcome
+    # Early stop policy
+    if cur_step >= 3:
+        profit = payout(cur_step) - params["payIn"]
+        logger.debug(f"STOP_EARLY: path={path} cur_step={cur_step} profit={profit} prob={prob_so_far}")
+        outcome[profit] = prob_so_far
+        return outcome
+    if cur_step == 2 and rolls_left == 1:
+        profit = payout(cur_step) - params["payIn"]
+        logger.debug(f"STOP_STEP2_LAST: path={path} cur_step={cur_step} profit={profit} prob={prob_so_far}")
+        outcome[profit] = prob_so_far
+        return outcome
+    for sum_ in range(minSum, maxSum+1):
+        p = sum_prob[sum_]
+        if p == 0:
+            continue
+        next_s = next_step(sum_, cur_step)
+        this_path = path + [(rolls_left, cur_step, sum_, next_s)]
+        if next_s == 0:
+            logger.debug(f"BUST: path={this_path} profit={-params['payIn']} prob={prob_so_far * p}")
+            outcome[-params["payIn"]] += prob_so_far * p
+        else:
+            if next_s < cur_step:
+                next_s = cur_step
+            if rolls_left == 1:
+                profit = payout(next_s) - params["payIn"]
+                logger.debug(f"LAST: path={this_path} next_s={next_s} profit={profit} prob={prob_so_far * p}")
+                outcome[profit] += prob_so_far * p
+            else:
+                sub = dp(rolls_left-1, next_s, this_path, prob_so_far * p)
+                for k, v in sub.items():
+                    outcome[k] += v
+    return outcome
+
+@lru_cache(maxsize=None)
+def dp_cached(rolls_left, cur_step):
+    # Call the uncached version without path/prob_so_far for caching
+    return dp(rolls_left, cur_step, path=None, prob_so_far=1.0)
+
+# Compute the full distribution
+logger.info("Running DP to compute full distribution...")
+hist = dp_cached(params["maxRolls"], 0)
+logger.info(f"Distribution: {hist}")
+logger.info(f"Sum of probabilities: {sum(hist.values())}")
+
+
+# Ensure all possible profit values are present (for nice x-axis)
+possible_profits = [
+    -params["payIn"],  # bust
+    params["payoutPerStep1P"] - params["payIn"],
+    params["payoutPerStep2P"] - params["payIn"],
+    params["payoutPerStep3P"] - params["payIn"],
+    params["payoutPerStep4P"] - params["payIn"],
+    params["payoutPerStep5P"] - params["payIn"],
+]
+profits = np.array(sorted(set(hist.keys()) | set(possible_profits)))
+probs = np.array([hist.get(k, 0.0) for k in profits])
+
+logger.info("Profits: %s", profits)
+logger.info("Probs: %s", probs)
+
+# Plot
+plt.figure(figsize=(8,5))
+bars = plt.bar(profits, probs, width=0.7, color='royalblue', edgecolor='k')
+
+plt.xlabel('Net Profit (tokens)', fontsize=12)
+plt.ylabel('Probability', fontsize=12)
+plt.title('Theoretical Distribution of Game Outcomes', fontsize=14)
+plt.xticks(profits, [f"{int(x)}" for x in profits])
+plt.grid(axis='y', alpha=0.3)
+
+# Annotate bars with probabilities (always show value, even if very small)
+for bar, prob in zip(bars, probs):
+    plt.text(bar.get_x() + bar.get_width()/2, bar.get_height(), f"{prob:.4%}", 
+             ha='center', va='bottom', fontsize=10)
+
+plt.tight_layout()
+plt.savefig("histogram.png", dpi=300)
+plt.show()

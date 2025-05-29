@@ -1,3 +1,4 @@
+
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -7,6 +8,7 @@
 #include <iomanip>
 #include <functional>
 #include <numeric>
+#include <algorithm>
 
 int main() {
     // load parameters
@@ -27,7 +29,6 @@ int main() {
     double mid = (minSum+maxSum)/2.0;
     int failMin = std::max(minSum, int(std::ceil(mid-r)));
     int failMax = std::min(maxSum, int(std::floor(mid+r)));
-
     int maxRolls = int(params["maxRolls"]);
     double payIn = params["payIn"];
 
@@ -43,8 +44,8 @@ int main() {
     std::vector<double> sumProb(maxSum+1);
     for(int s=minSum;s<=maxSum;s++) sumProb[s]=dist[s]/total;
 
-    // helper to map roll->next step and payout
-    auto nextStep = [&](int sum,int cur){
+    // Helper to map roll->next step and payout
+    auto nextStep = [&](int sum, int cur) {
         if(sum>=failMin && sum<=failMax) return 0;
         if(sum<=params["yardsPerStep1P"]) return 1;
         if(sum<=params["yardsPerStep2P"]) return 2;
@@ -52,29 +53,58 @@ int main() {
         if(sum<=params["yardsPerStep4P"]) return 4;
         return 5;
     };
-    auto payoutOf = [&](int step){
+    auto payoutOf = [&](int step) {
         if(step<1||step>5) return 0.0;
         return params["payoutPerStep" + std::to_string(step) + "P"];
     };
 
-    // enumerate all routes
-    double EV_accum=0.0;
-    std::function<void(int,int,double)> dfs = [&](int rollsLeft,int curStep,double prob){
-        if(rollsLeft==0){
-            EV_accum += prob * payoutOf(curStep);
-            return;
-        }
-        for(int s=minSum;s<=maxSum;s++){
-            double p = sumProb[s]; if(p==0) continue;
-            int next = nextStep(s,curStep);
-            // ensure no backward except bust
-            if(next!=0 && next<curStep) next=curStep;
-            dfs(rollsLeft-1, next, prob*p);
-        }
-    };
-    dfs(maxRolls, 0, 1.0);
+    // DP table: map (rolls_left, cur_step) -> map<profit, probability>
+    using Hist = std::map<int, double>;
+    std::map<std::pair<int,int>, Hist> dp;
 
-    double EV = EV_accum - payIn;
-    std::cout<<"Theoretical EV (per game): "<<std::fixed<<std::setprecision(6)<<EV<<std::endl;
+    // Recursive DP function
+    std::function<Hist(int,int)> rec;
+    rec = [&](int rolls_left, int cur_step) -> Hist {
+        Hist outcome;
+        if (rolls_left == 0) {
+            int profit = int(payoutOf(cur_step) - payIn);
+            outcome[profit] = 1.0;
+            return outcome;
+        }
+        for (int sum = minSum; sum <= maxSum; ++sum) {
+            double p = sumProb[sum];
+            if (p == 0) continue;
+            int next_s = nextStep(sum, cur_step);
+            if (next_s == 0) {
+                outcome[-int(payIn)] += p;
+            } else {
+                if (next_s < cur_step) next_s = cur_step;
+                if (rolls_left == 1) {
+                    int profit = int(payoutOf(next_s) - payIn);
+                    outcome[profit] += p;
+                } else {
+                    Hist sub = rec(rolls_left-1, next_s);
+                    for (const auto& kv : sub) {
+                        outcome[kv.first] += p * kv.second;
+                    }
+                }
+            }
+        }
+        return outcome;
+    };
+
+    Hist hist = rec(maxRolls, 0);
+
+    // Print the histogram
+    std::cout << "Profit distribution (profit: probability):\n";
+    for (const auto& kv : hist) {
+        std::cout << std::setw(3) << kv.first << ": " << std::setprecision(6) << kv.second << std::endl;
+    }
+    double EV = 0.0;
+    for (const auto& kv : hist) EV += kv.first * kv.second;
+    std::cout << "Theoretical EV (per game): " << std::fixed << std::setprecision(6) << EV << std::endl;
+    double totalProb = 0.0;
+    for (const auto& kv : hist) totalProb += kv.second;
+    std::cout << "Sum of probabilities: " << totalProb << std::endl;
     return 0;
 }
